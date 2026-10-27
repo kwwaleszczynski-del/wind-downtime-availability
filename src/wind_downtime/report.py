@@ -126,7 +126,9 @@ def fig_scenarios(scen: pd.DataFrame, path: Path) -> None:
     ax.invert_yaxis()
     ax.axvline(0, color="k", lw=0.8)
     ax.set_xlabel("change of contractual time-based availability [percentage points]")
-    ax.set_title("What a misclassification does to a warranty availability figure (test years)")
+    # figure-level title: the long y labels push the axes right, so an axes title gets cut at the edge
+    fig.suptitle("What a misclassification does to a warranty availability figure (test years)",
+                 fontsize=plt.rcParams["axes.titlesize"])
     ax.legend(frameon=False, fontsize=8)
     ax.grid(axis="x", alpha=0.3)
     fig.tight_layout()
