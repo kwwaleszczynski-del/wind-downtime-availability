@@ -1,0 +1,438 @@
+"""docs/index.html: event timeline per turbine, method comparison and an availability calculator.
+
+The page is static (GitHub Pages): ``docs/data.js`` holds the study results, Plotly comes from a CDN.
+
+Usage:
+    write_dashboard(Path("results"), Path("docs/index.html"))
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from wind_downtime.availability import CONTRACTS, MAINTENANCE_ALLOWANCE_H
+from wind_downtime.schema import CATEGORIES, CATEGORY_LIST
+
+# Timeline colour groups: six hues in a validated order (adjacent pairs pass the CVD and normal-vision checks
+# in light and dark mode) plus two neutrals; the exact category is in the tooltip and the event table.
+GROUPS = [
+    ("Out of environmental spec.", ["environmental"], "#2a78d6", "#3987e5"),
+    ("Derated (partial performance)", ["partial_performance"], "#eb6834", "#d95926"),
+    ("Grid / curtailment / requested", ["requested", "electrical"], "#1baf7a", "#199e70"),
+    ("Maintenance (scheduled or planned corrective)", ["scheduled_maintenance", "planned_corrective"], "#eda100", "#c98500"),
+    ("Technical standby", ["technical_standby"], "#6250d6", "#9085e9"),
+    ("Forced outage (turbine fault)", ["forced_outage"], "#e34948", "#e66767"),
+    ("No information (gap, frozen data)", ["no_info"], "#c3c2b7", "#5a5955"),
+    ("Stop, cause not logged", ["unknown"], "#898781", "#898781"),
+]
+PIPELINES = {("reference", "logs"): "Logged (reference)", ("signature", "rules"): "Pitch/rpm signature + rules",
+             ("gbm", "gbm"): "GBM detector + GBM classifier", ("signature", "none"): "Pitch/rpm signature, no cause"}
+
+
+def _records(df: pd.DataFrame) -> list:
+    return json.loads(df.replace({np.nan: None}).to_json(orient="records"))
+
+
+def build_data(results: Path) -> dict:
+    data = json.loads((results / "dashboard.json").read_text())
+    data["groups"] = [{"label": g[0], "categories": g[1], "light": g[2], "dark": g[3]} for g in GROUPS]
+    data["events"] = _records(pd.read_csv(results / "detection_events.csv"))
+    data["intervals"] = _records(pd.read_csv(results / "detection_intervals.csv"))
+    data["lost"] = _records(pd.read_csv(results / "lost_energy_detection.csv"))
+    data["avail_err"] = _records(pd.read_csv(results / "availability_errors.csv"))
+    data["scenarios"] = _records(pd.read_csv(results / "availability_scenarios.csv"))
+    data["classification"] = _records(pd.read_csv(results / "classification.csv"))
+    tot = pd.read_csv(results / "category_totals.csv")
+    calc = {}
+    for (det, cls), label in PIPELINES.items():
+        sub = tot[(tot["detector"] == det) & (tot["classifier"] == cls)]
+        for farm, g in sub.groupby("farm"):
+            s = g.groupby("category")[["hours", "lost_kwh", "actual_kwh"]].sum()
+            calc.setdefault(farm, {"turbine_years": int(g["group"].nunique()), "pipelines": {}})
+            calc[farm]["pipelines"][f"{det}|{cls}"] = {
+                "label": label,
+                "hours": {c: float(s.loc[c, "hours"]) if c in s.index else 0.0 for c in CATEGORY_LIST},
+                "lost_mwh": {c: float(s.loc[c, "lost_kwh"]) / 1000 if c in s.index else 0.0 for c in CATEGORY_LIST},
+                "actual_mwh": {c: float(s.loc[c, "actual_kwh"]) / 1000 if c in s.index else 0.0
+                               for c in CATEGORY_LIST},
+            }
+    data["calculator"] = calc
+    data["contracts"] = CONTRACTS
+    data["allowance"] = MAINTENANCE_ALLOWANCE_H
+    data["category_names"] = CATEGORIES
+    return data
+
+
+def write_dashboard(results: Path, path: Path) -> None:
+    data = build_data(results)
+    (path.parent / "data.js").write_text("window.DATA = " + json.dumps(data, separators=(",", ":")) + ";\n",
+                                         encoding="utf-8")
+    path.write_text(PAGE, encoding="utf-8")
+
+
+PAGE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wind turbine downtime and availability</title>
+<meta name="description" content="Stops, deratings and curtailment of wind turbines from 10-minute SCADA: detection without status codes, IEC 61400-26 cause classification, lost energy and contractual availability on three open wind farms.">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10); --accent: #2a78d6;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10); --accent: #3987e5;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10); --accent: #3987e5;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink);
+       font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.7rem; margin: 0 0 6px; }
+h2 { font-size: 1.2rem; margin: 36px 0 6px; }
+p { color: var(--ink2); margin: 6px 0 12px; max-width: 80ch; }
+a { color: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 14px 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 18px 0; }
+.tile .v { font-size: 1.6rem; font-weight: 650; }
+.tile .l { color: var(--ink2); font-size: 0.86rem; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0 10px; }
+label { font-size: 0.88rem; color: var(--ink2); }
+select, input { font: inherit; font-size: 0.9rem; padding: 3px 6px; border: 1px solid var(--axis);
+                border-radius: 6px; background: var(--surface); color: var(--ink); }
+input[type=number] { width: 6.5em; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.84rem; color: var(--ink2); margin: 6px 0; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--grid); }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+.scroll { max-height: 320px; overflow: auto; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+.big { font-size: 1.9rem; font-weight: 650; }
+.note { font-size: 0.82rem; color: var(--muted); }
+.plot { width: 100%; }
+footer { margin-top: 40px; font-size: 0.82rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<h1>Wind turbine downtime, its causes and availability</h1>
+<p>Stops, deratings and curtailment found in 10-minute SCADA data <b>without status codes</b>, classified into
+IEC 61400-26 categories, priced in lost energy and turned into time- and energy-based availability. Three open
+wind farms: Kelmarsh (6 x Senvion MM92), Penmanshiel (14 x Senvion MM82) and Hill of Towie (21 x Siemens
+SWT-2.3-VS-82). Everything below is measured on test periods the methods never saw.
+Code and method: <a href="https://github.com/kwwaleszczynski-del/wind-downtime-availability">github.com/kwwaleszczynski-del/wind-downtime-availability</a>.</p>
+<div class="tiles" id="tiles"></div>
+
+<h2>1. Event timeline per turbine</h2>
+<p>Top: what the operator logged. Bottom: what a detector found from the signals alone, with its cause
+classification. Thin bars are deratings. Drag to zoom, double-click to reset; hover for details.</p>
+<div class="controls">
+  <label>Farm <select id="tl-farm"></select></label>
+  <label>Detector <select id="tl-method">
+    <option value="signature">Pitch / rotor speed signature + rules</option>
+    <option value="gbm">Gradient boosting + GBM classifier</option>
+    <option value="hmm">HMM segmentation (no cause)</option>
+  </select></label>
+  <label>Show <select id="tl-window"><option value="episode">a notable stretch</option>
+    <option value="all">the whole test period</option></select></label>
+</div>
+<div class="legend" id="tl-legend"></div>
+<div class="card"><div id="tl-plot" class="plot" style="height:640px"></div></div>
+<details style="margin-top:8px"><summary class="note">Event table (detected events, longest first)</summary>
+<div class="card scroll"><table id="tl-table"></table></div></details>
+
+<h2>2. Which detector?</h2>
+<p>Events are matched when they share at least one 10-minute interval. GBM (Senvion) was trained on
+Kelmarsh 2016-2019 and Penmanshiel 2018 only; on Hill of Towie it is the transfer to another manufacturer, and
+GBM (in-farm) the same model trained on Hill of Towie's own first half-year.</p>
+<div class="controls">
+  <label>Metric <select id="mc-metric">
+    <option value="ev_stop_f1">Stop events: F1</option>
+    <option value="ev_stop_recall">Stop events: recall</option>
+    <option value="ev_stop_precision">Stop events: precision</option>
+    <option value="ev_derate_f1">Derate events: F1</option>
+    <option value="iv_stop_f1">Stop intervals: F1</option>
+    <option value="iv_derate_f1">Derate intervals: F1</option>
+    <option value="lost_error">Lost energy vs logged states [%]</option>
+    <option value="avail_err">Contractual availability error, mean |pp| per turbine-year</option>
+  </select></label>
+</div>
+<div class="card"><div id="mc-plot" class="plot" style="height:380px"></div></div>
+<p class="note" id="mc-note"></p>
+
+<h2>3. Availability calculator</h2>
+<p>Choose a farm, how the categories are treated by the contract, and whose classification feeds it. The
+numbers are the test periods' totals; the presets are illustrative, the real definitions are in your contract
+and in IEC 61400-26-1/-2.</p>
+<div class="controls">
+  <label>Farm <select id="av-farm"></select></label>
+  <label>Contract preset <select id="av-preset"><option value="oem_warranty">OEM warranty (typical)</option>
+    <option value="iec_operational">IEC 61400-26-1 operational</option></select></label>
+  <label>Maintenance allowance [h / turbine-year] <input type="number" id="av-allow" min="0" step="10"></label>
+  <label>Guaranteed availability [%] <input type="number" id="av-guar" min="80" max="100" step="0.1" value="97"></label>
+  <label>Energy price [EUR/MWh] <input type="number" id="av-price" min="0" step="5" value="80"></label>
+</div>
+<div class="grid2">
+  <div class="card"><table id="av-roles"></table></div>
+  <div class="card"><div id="av-plot" class="plot" style="height:300px"></div><div id="av-out"></div></div>
+</div>
+<p class="note">Liquidated damages here = max(0, guaranteed - actual time availability) x potential energy x price,
+one common form; contracts differ (bands, caps, energy-based guarantees).</p>
+
+<h2>4. What a misclassification costs</h2>
+<p>Logged categories of the Senvion test years, with one class of events deliberately mis-booked; change of
+the warranty time-based availability, in percentage points.</p>
+<div class="card"><div id="sc-plot" class="plot" style="height:330px"></div></div>
+
+<footer>Data: Kelmarsh and Penmanshiel wind farm data (Cubico Sustainable Investments, Zenodo, CC BY 4.0), Hill of
+Towie open dataset (RES on behalf of TRIG, Zenodo, CC BY 4.0). Derived figures only. Code MIT.</footer>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"
+        integrity="sha384-cCVCZkAjYNxaYKbM8lsArLznDF/SvMFr1jcZrvOpSTCa0W40ZAdLzHCEulnUa5i7" crossorigin="anonymous"></script>
+<script src="data.js"></script>
+<script>
+const D = window.DATA;
+const dark = () => document.documentElement.dataset.theme === "dark" ||
+  (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const FARMS = {kelmarsh: "Kelmarsh", penmanshiel: "Penmanshiel", hill_of_towie: "Hill of Towie"};
+const METHODS = ["rules", "residual", "signature", "hmm", "gbm", "gbm_in_farm"];
+const MLABEL = {rules: "Rule P<=0", residual: "Residual", signature: "Pitch/rpm", hmm: "HMM", gbm: "GBM (Senvion)",
+                gbm_in_farm: "GBM (in-farm)"};
+const fmt = (x, d = 1) => x == null || isNaN(x) ? "-" : Number(x).toFixed(d);
+function layoutBase(extra) {
+  return Object.assign({paper_bgcolor: css("--surface"), plot_bgcolor: css("--surface"),
+    font: {family: "system-ui, -apple-system, Segoe UI, sans-serif", color: css("--ink2"), size: 12},
+    margin: {l: 60, r: 16, t: 24, b: 50}, hoverlabel: {bgcolor: css("--surface"), font: {color: css("--ink")}}}, extra);
+}
+const axis = extra => Object.assign({gridcolor: css("--grid"), linecolor: css("--axis"), zeroline: false}, extra);
+const groupOf = {};
+D.groups.forEach((g, i) => g.categories.forEach(c => groupOf[c] = i));
+const catName = i => D.categories[i];
+
+// ---------- tiles
+function tiles() {
+  const ev = D.events.filter(r => r.state === "stop");
+  const f1 = (farm, m) => (ev.find(r => r.farm === farm && r.method === m) || {}).f1;
+  const sc = D.scenarios.filter(r => r.contract === "oem_warranty" && r.scenario.startsWith("every stop"));
+  const worst = Math.min(...sc.map(r => r.time_pp));
+  const t = [
+    [fmt(Math.min(...Object.keys(FARMS).map(f => f1(f, "signature"))), 2) + " - " +
+     fmt(Math.max(...Object.keys(FARMS).map(f => f1(f, "signature"))), 2),
+     "stop-event F1 of the label-free pitch / rotor speed signature on all three farms"],
+    [fmt(f1("hill_of_towie", "gbm"), 2) + " vs " + fmt(f1("hill_of_towie", "gbm_in_farm"), 2),
+     "stop-event F1 on the Siemens farm: model trained on Senvions vs trained in-farm"],
+    [fmt(worst, 1) + " pp", "warranty availability if every stop is booked as a turbine fault (worst Senvion farm)"],
+  ];
+  document.getElementById("tiles").innerHTML = t.map(x =>
+    `<div class="card tile"><div class="v">${x[0]}</div><div class="l">${x[1]}</div></div>`).join("");
+}
+
+// ---------- timeline
+function fillSelect(id, opts, value) {
+  const s = document.getElementById(id);
+  s.innerHTML = opts.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+  if (value) s.value = value;
+}
+function timeline() {
+  const farm = document.getElementById("tl-farm").value, method = document.getElementById("tl-method").value;
+  const F = D.farms[farm], n = F.turbines.length, isDark = dark();
+  const traces = [];
+  [["reference", "y2"], [method, "y"]].forEach(([m, ax]) => {
+    const T = F.timeline[m];
+    const by = D.groups.map(() => ({base: [], x: [], y: [], w: [], text: []}));
+    for (let k = 0; k < T.start.length; k++) {
+      const g = groupOf[catName(T.category[k])] ?? 7;
+      const b = by[g];
+      b.base.push(new Date(T.start[k])); b.x.push(T.end[k] - T.start[k]);
+      b.y.push(F.turbines[T.turbine[k]]); b.w.push(T.state[k] === 1 ? 0.35 : 0.8);
+      const h = (T.end[k] - T.start[k]) / 3.6e6;
+      b.text.push(`${F.turbines[T.turbine[k]]}: ${D.category_labels[T.category[k]]}<br>` +
+        `${new Date(T.start[k]).toISOString().slice(0, 16).replace("T", " ")} UTC, ${h.toFixed(1)} h` +
+        (T.state[k] === 1 ? " (derate)" : ""));
+    }
+    by.forEach((b, g) => {
+      if (!b.x.length) return;
+      traces.push({type: "bar", orientation: "h", base: b.base, x: b.x, y: b.y, width: b.w, yaxis: ax,
+        marker: {color: isDark ? D.groups[g].dark : D.groups[g].light, line: {width: 0}},
+        hovertext: b.text, hoverinfo: "text", showlegend: false, name: D.groups[g].label});
+    });
+  });
+  const win = document.getElementById("tl-window").value === "episode" ? F.window : null;
+  const lay = layoutBase({barmode: "overlay", bargap: 0, margin: {l: 48, r: 16, t: 28, b: 40},
+    xaxis: axis({type: "date", rangeslider: {visible: false}, range: win, autorange: !win}),
+    yaxis: axis({domain: [0, 0.47], categoryorder: "array", categoryarray: [...F.turbines].reverse(),
+      title: {text: "detected", font: {size: 12}}, tickfont: {size: n > 14 ? 9 : 11}}),
+    yaxis2: axis({domain: [0.53, 1], categoryorder: "array", categoryarray: [...F.turbines].reverse(),
+      title: {text: "logged", font: {size: 12}}, tickfont: {size: n > 14 ? 9 : 11}}),
+    annotations: [{text: `${F.label}, ${F.period[0]} to ${F.period[1]}`, xref: "paper", yref: "paper", x: 0, y: 1.04,
+      showarrow: false, font: {color: css("--ink2"), size: 12}, xanchor: "left"}]});
+  Plotly.react("tl-plot", traces, lay, {responsive: true, displaylogo: false});
+  document.getElementById("tl-legend").innerHTML = D.groups.map(g =>
+    `<span><i style="background:${isDark ? g.dark : g.light}"></i>${g.label}</span>`).join("");
+  const T = F.timeline[method];
+  const rows = T.start.map((s, k) => [T.end[k] - s, k]).sort((a, b) => b[0] - a[0]).slice(0, 300);
+  document.getElementById("tl-table").innerHTML = "<tr><th>Turbine</th><th>Start (UTC)</th><th class=n>Hours</th>" +
+    "<th>State</th><th>Category</th></tr>" + rows.map(([d, k]) =>
+    `<tr><td>${F.turbines[T.turbine[k]]}</td><td>${new Date(T.start[k]).toISOString().slice(0, 16).replace("T", " ")}</td>` +
+    `<td class=n>${(d / 3.6e6).toFixed(1)}</td><td>${["normal", "derate", "stop", "no data"][T.state[k]]}</td>` +
+    `<td>${D.category_labels[T.category[k]]}</td></tr>`).join("");
+}
+
+// ---------- method comparison
+function metricRows(metric) {
+  const out = {};
+  const put = (farm, m, v) => { (out[farm] = out[farm] || {})[m] = v; };
+  if (metric.startsWith("ev_")) {
+    const [, st, k] = metric.split("_");
+    D.events.filter(r => r.state === st).forEach(r => put(r.farm, r.method, r[k]));
+  } else if (metric.startsWith("iv_")) {
+    const [, st, k] = metric.split("_");
+    D.intervals.filter(r => r.state === st).forEach(r => put(r.farm, r.method, r[k]));
+  } else if (metric === "lost_error") {
+    D.lost.forEach(r => put(r.farm, r.method, r.error == null ? null : 100 * r.error));
+  } else {
+    D.avail_err.filter(r => r.metric === "time_availability" && r.contract === "oem_warranty" &&
+      r.classifier === (r.detector === "gbm" ? "gbm" : "rules")).forEach(r => put(r.farm, r.detector, r.mae_pp));
+  }
+  return out;
+}
+function methods() {
+  const metric = document.getElementById("mc-metric").value;
+  const rows = metricRows(metric);
+  const cols = [css("--s1"), css("--s2"), css("--s3")];
+  const traces = Object.keys(FARMS).map((f, j) => {
+    const ms = METHODS.filter(m => rows[f] && rows[f][m] != null);
+    return {type: "bar", name: FARMS[f], x: ms.map(m => MLABEL[m]), y: ms.map(m => rows[f][m]),
+      marker: {color: cols[j], line: {width: 2, color: css("--surface")}},
+      hovertemplate: "%{x}<br>" + FARMS[f] + ": %{y:.2f}<extra></extra>"};
+  });
+  const pct = metric === "lost_error" || metric === "avail_err";
+  Plotly.react("mc-plot", traces, layoutBase({barmode: "group", bargap: 0.25,
+    legend: {orientation: "h", y: 1.12, x: 0}, xaxis: axis({categoryorder: "array",
+      categoryarray: METHODS.map(m => MLABEL[m])}),
+    yaxis: axis({title: {text: pct ? (metric === "avail_err" ? "pp" : "%") : "", font: {size: 12}},
+      range: pct ? null : [0, 1]})}), {responsive: true, displaylogo: false});
+  document.getElementById("mc-note").textContent = metric === "lost_error"
+    ? "Same expected power (WARP) on both sides: the error is the detector's alone. Negative = lost energy missed."
+    : metric === "avail_err" ? "Signature with the rule classifier, GBM with the GBM classifier; warranty preset. On Hill of Towie, where causes are only partly logged, every stop counts as unavailable."
+    : "";
+}
+
+// ---------- availability calculator
+const ROLES = ["available", "unavailable", "excluded"];
+let roles = {};
+function setPreset() {
+  const p = document.getElementById("av-preset").value;
+  roles = Object.assign({}, D.contracts[p]);
+  document.getElementById("av-allow").value = D.allowance[p];
+  drawRoles(); calc();
+}
+function drawRoles() {
+  const farm = document.getElementById("av-farm").value, P = D.calculator[farm].pipelines["reference|logs"];
+  document.getElementById("av-roles").innerHTML = "<tr><th>Category</th><th class=n>Logged h</th>" +
+    "<th class=n>Lost MWh</th><th>Counts as</th></tr>" + D.categories.slice(0, -1).map(c =>
+    `<tr><td>${D.category_names[c]}</td><td class=n>${fmt(P.hours[c], 0)}</td><td class=n>${fmt(P.lost_mwh[c], 0)}</td>` +
+    `<td><select data-cat="${c}">${ROLES.map(r => `<option ${roles[c] === r ? "selected" : ""}>${r}</option>`).join("")}</select></td></tr>`).join("");
+  document.querySelectorAll("#av-roles select").forEach(s => s.onchange = e => { roles[e.target.dataset.cat] = e.target.value; calc(); });
+}
+function kpi(P, ty, allow) {
+  let av = 0, un = 0, lostUn = 0, pot = 0;
+  for (const c of D.categories.slice(0, -1)) {
+    const r = roles[c], h = P.hours[c];
+    if (r === "available") av += h; else if (r === "unavailable") un += h;
+    if (r === "unavailable") lostUn += P.lost_mwh[c];
+    if (r !== "excluded") pot += P.actual_mwh[c] + P.lost_mwh[c];
+  }
+  const sm = roles.scheduled_maintenance === "unavailable" ? P.hours.scheduled_maintenance : 0;
+  const exc = Math.min(sm, allow * ty);
+  if (sm > 0) lostUn -= P.lost_mwh.scheduled_maintenance * exc / sm;
+  un -= exc;
+  return {time: av / (av + un), energy: 1 - lostUn / pot, pot};
+}
+const short = l => narrow() ? l.replace("Pitch/rpm signature", "Signature").replace("GBM detector + GBM classifier", "GBM + GBM")
+  .replace("Logged (reference)", "Logs").replace(", no cause", " only") : l;
+function calc() {
+  const farm = document.getElementById("av-farm").value, C = D.calculator[farm];
+  const allow = +document.getElementById("av-allow").value || 0, guar = +document.getElementById("av-guar").value / 100;
+  const price = +document.getElementById("av-price").value || 0;
+  const keys = Object.keys(C.pipelines);
+  const res = keys.map(k => [k, kpi(C.pipelines[k], C.turbine_years, allow)]);
+  const ref = res.find(r => r[0] === "reference|logs")[1];
+  const ld = r => Math.max(0, guar - r.time) * r.pot * price;
+  Plotly.react("av-plot", [
+    {type: "bar", name: "time-based", y: res.map(r => short(C.pipelines[r[0]].label)), x: res.map(r => 100 * r[1].time),
+     orientation: "h", marker: {color: css("--s1")}, hovertemplate: "%{y}<br>time-based %{x:.2f} %<extra></extra>"},
+    {type: "bar", name: "energy-based", y: res.map(r => short(C.pipelines[r[0]].label)), x: res.map(r => 100 * r[1].energy),
+     orientation: "h", marker: {color: css("--s2")}, hovertemplate: "%{y}<br>energy-based %{x:.2f} %<extra></extra>"}],
+    layoutBase({barmode: "group", margin: {l: narrow() ? 120 : 200, r: 16, t: 10, b: 40}, legend: {orientation: "h", y: -0.2},
+      xaxis: axis({range: [Math.min(90, ...res.map(r => 100 * Math.min(r[1].time, r[1].energy))) - 1, 100.2],
+        title: {text: "availability [%]", font: {size: 12}}}), yaxis: axis({autorange: "reversed"})}),
+    {responsive: true, displaylogo: false});
+  document.getElementById("av-out").innerHTML = `<table><tr><th>Classification</th><th class=n>Time</th>` +
+    `<th class=n>Energy</th><th class=n>vs logs [pp]</th><th class=n>Damages [kEUR]</th></tr>` + res.map(([k, r]) =>
+    `<tr><td>${C.pipelines[k].label}</td><td class=n>${fmt(100 * r.time, 2)} %</td><td class=n>${fmt(100 * r.energy, 2)} %</td>` +
+    `<td class=n>${k === "reference|logs" ? "" : fmt(100 * (r.time - ref.time), 2)}</td><td class=n>${fmt(ld(r) / 1000, 1)}</td></tr>`).join("") +
+    `</table><p class="note">${C.turbine_years} turbine-years in the test period.</p>`;
+}
+
+// ---------- scenarios
+const SHORT = {"every stop counted as a turbine fault": "every stop = fault",
+  "grid and curtailment stops counted as turbine faults": "grid / curtailment = fault",
+  "missing data counted as downtime": "missing data = down", "maintenance counted as forced outage": "maintenance = forced",
+  "environmental stops counted as faults": "environmental = fault"};
+const narrow = () => window.innerWidth < 640;
+function scenarios() {
+  const d = D.scenarios.filter(r => r.contract === "oem_warranty");
+  const full = [...new Set(d.map(r => r.scenario))];
+  const names = full.map(n => SHORT[n] || n);
+  const cols = [css("--s1"), css("--s2")];
+  const traces = ["kelmarsh", "penmanshiel"].map((f, j) => ({type: "bar", orientation: "h", name: FARMS[f],
+    y: names, x: full.map(n => (d.find(r => r.farm === f && r.scenario === n) || {}).time_pp), text: full, textposition: "none",
+    marker: {color: cols[j]}, hovertemplate: "%{text}<br>" + FARMS[f] + ": %{x:.2f} pp<extra></extra>"}));
+  Plotly.react("sc-plot", traces, layoutBase({barmode: "group", margin: {l: narrow() ? 130 : 190, r: 16, t: 10, b: 40},
+    legend: {orientation: "h", y: -0.2}, yaxis: axis({autorange: "reversed"}),
+    xaxis: axis({title: {text: "change of warranty time-based availability [pp]", font: {size: 12}}, zeroline: true,
+      zerolinecolor: css("--axis")})}), {responsive: true, displaylogo: false});
+}
+
+function init() {
+  const farms = Object.keys(FARMS).map(f => [f, FARMS[f]]);
+  fillSelect("tl-farm", farms, "penmanshiel");
+  fillSelect("av-farm", farms.filter(([f]) => D.calculator[f]), "penmanshiel");
+  document.getElementById("tl-farm").onchange = timeline;
+  document.getElementById("tl-method").onchange = timeline;
+  document.getElementById("tl-window").onchange = timeline;
+  document.getElementById("mc-metric").onchange = methods;
+  document.getElementById("av-farm").onchange = () => { drawRoles(); calc(); };
+  document.getElementById("av-preset").onchange = setPreset;
+  ["av-allow", "av-guar", "av-price"].forEach(id => document.getElementById(id).oninput = calc);
+  tiles(); timeline(); methods(); setPreset(); scenarios();
+}
+init();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { timeline(); methods(); calc(); scenarios(); });
+window.addEventListener("resize", () => { calc(); scenarios(); });
+</script>
+</body>
+</html>
+"""

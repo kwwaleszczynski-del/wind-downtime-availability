@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wind-downtime-availability"
+version = "0.1.0"
+description = "Detect stops, deratings and curtailment of wind turbines from 10-minute SCADA, classify their causes into IEC 61400-26 categories, price the lost energy and compute time- and energy-based availability."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=14",
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "requests>=2.31",
+    "matplotlib>=3.8",
+    "plotly>=5.20",
+    "wind-power-curve-kelmarsh @ git+https://github.com/kwwaleszczynski-del/wind-power-curve-kelmarsh@9046a8ff4e6b8d27dabba36ceaa901cd972935ea",
+    "wind-wake-aware-verification @ git+https://github.com/kwwaleszczynski-del/wind-wake-aware-verification@b87495cf5a8edd034a184cb14dd2304521fa0bbe",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+wind-downtime = "wind_downtime.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = ["ignore:The 'generic' unit for NumPy timedelta:DeprecationWarning"]

@@ -1,0 +1,19 @@
+farm,classifier,segmentation,n_events,accuracy_events,accuracy_time
+kelmarsh,rules,reference events,630,0.5793650793650794,0.20651109190435035
+kelmarsh,gbm,reference events,630,0.7825396825396825,0.48326130798040917
+kelmarsh,rules,detected (signature),641,,0.15684690403370075
+kelmarsh,gbm,detected (signature),641,,0.4700213514917191
+kelmarsh,rules,detected (gbm),756,,0.4282993825379422
+kelmarsh,gbm,detected (gbm),756,,0.6200588608690634
+penmanshiel,rules,reference events,1501,0.7395069953364424,0.6794294814096795
+penmanshiel,gbm,reference events,1501,0.5829447035309794,0.48715640794848714
+penmanshiel,rules,detected (signature),1776,,0.5164695048523057
+penmanshiel,gbm,detected (signature),1776,,0.4050435644967061
+penmanshiel,rules,detected (gbm),1580,,0.5550754409577106
+penmanshiel,gbm,detected (gbm),1580,,0.4748175958064745
+hill_of_towie,rules,reference events,902,0.19290465631929046,0.19492543095099746
+hill_of_towie,gbm,reference events,902,0.30376940133037694,0.5329072244818903
+hill_of_towie,rules,detected (signature),882,,0.15335973428717425
+hill_of_towie,gbm,detected (signature),882,,0.5645758814512009
+hill_of_towie,rules,detected (gbm),1132,,0.36069238630556977
+hill_of_towie,gbm,detected (gbm),1132,,0.32204905467552375

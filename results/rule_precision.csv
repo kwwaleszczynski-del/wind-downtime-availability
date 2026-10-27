@@ -1,0 +1,9 @@
+rules,precision,n_events
+electrical,0.45977011494252873,261
+environmental,0.6900369003690037,271
+forced_outage,0.3252032520325203,123
+partial_performance,0.0,176
+planned_corrective,0.17073170731707318,82
+requested,0.6123595505617978,178
+scheduled_maintenance,0.7956521739130434,230
+technical_standby,0.7367986798679867,1212
