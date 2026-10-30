@@ -179,7 +179,7 @@ def classify_by_codes(events: pd.DataFrame, code: np.ndarray, mapping: dict) -> 
         cats = [mapping.get(str(v)) for v in vals if v is not None]
         cats = [c for c in cats if c is not None]
         if cats:
-            out[idx] = max(set(cats), key=cats.count)
+            out[idx] = max(dict.fromkeys(cats), key=cats.count)  # a tie goes to the one seen first, not set order
     return out
 
 

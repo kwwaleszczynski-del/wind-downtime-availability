@@ -1,3 +1,9 @@
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -109,6 +115,34 @@ def test_codes_mapping_and_labels():
     painted = paint((8, 1), ev, pd.Series(["forced_outage", "requested"]), st)
     assert painted[:, 0].tolist() == [CAT["forced_outage"]] * 4 + [CAT["full_performance"]] + [CAT["requested"]] * 3
 
+
+# every ordered pair of two codes that map to different categories, one interval each: a tie in every event
+TIES = """
+import json
+import numpy as np
+import pandas as pd
+from wind_downtime.classify import classify_by_codes
+from wind_downtime.pipeline import _dominant
+from wind_downtime.schema import CATEGORY_LIST
+
+codes = [str(100 + i) for i in range(len(CATEGORY_LIST))]
+pairs = [(i, j) for i in range(len(codes)) for j in range(len(codes)) if i != j]
+code = np.array([[codes[i] for i, _ in pairs], [codes[j] for _, j in pairs]], dtype=object)
+ev = pd.DataFrame({"col": range(len(pairs)), "k0": 0, "k1": 2, "state": "stop"})
+cats = classify_by_codes(ev, code, dict(zip(codes, CATEGORY_LIST)))
+print(json.dumps({"pairs": pairs, "categories": cats.tolist(), "codes": [_dominant(code[:, c]) for c in ev["col"]]}))
+"""
+
+
+def test_ties_do_not_depend_on_the_hash_seed():
+    # set order of strings follows PYTHONHASHSEED; a tie goes to the code seen first in the event instead
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")}
+    out = [subprocess.run([sys.executable, "-c", TIES], env={**env, "PYTHONHASHSEED": seed}, capture_output=True,
+                          text=True, check=True).stdout for seed in ("0", "1")]
+    assert out[0] == out[1]
+    r = json.loads(out[0])
+    assert r["categories"] == [CATEGORY_LIST[i] for i, _ in r["pairs"]]
+    assert r["codes"] == [str(100 + i) for i, _ in r["pairs"]]
 
 def test_availability_kpis():
     # one turbine-year: 8000 h available, 500 h forced outage, 200 h grid, 60 h maintenance

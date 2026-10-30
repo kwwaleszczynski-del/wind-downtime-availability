@@ -148,4 +148,4 @@ def _kpi_row(totals: pd.DataFrame, contract: str, allowance: float, n_turbine_ye
 
 def _dominant(codes: np.ndarray):
     vals = [c for c in codes if c is not None]
-    return max(set(vals), key=vals.count) if vals else None
+    return max(dict.fromkeys(vals), key=vals.count) if vals else None  # a tie goes to the code seen first
