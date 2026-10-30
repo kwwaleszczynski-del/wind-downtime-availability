@@ -267,6 +267,10 @@ with excluded periods left out of every term of $`A_E`$ as well. Two illustrativ
 | planned corrective action, forced outage | unavailable | unavailable |
 | information unavailable | excluded | available |
 
+The category totals, both presets and the two availabilities are computed by
+[res-asset-kpi](https://github.com/kwwaleszczynski-del/res-asset-kpi) (`res_asset_kpi.wind`), the KPI library
+extracted from this and five related projects.
+
 ## Validation
 
 | Farm | Labelled training | Test | Baseline for neighbour ratios and WARP |
@@ -373,7 +377,7 @@ src/wind_downtime/
   events.py        intervals -> events, overlap matching, scores
   classify.py      event features, rules, gradient boosting, status code mapping
   energy.py        expected power: own anemometer, neighbours, WARP; lost energy
-  availability.py  contracts, time- and energy-based availability, misclassification scenarios
+  availability.py  category codes -> res-asset-kpi availability, misclassification scenarios
   pipeline.py      the `run` command for your own data
   study.py         the comparison on the three open farms
   report.py, dashboard.py, cli.py
