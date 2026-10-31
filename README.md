@@ -87,6 +87,13 @@ At Penmanshiel the references part ways in the high-wind stops (mean 22 m/s): wh
 cut-out decides whether anything was lost at all (own anemometer 927 MWh, WARP 644 MWh); outside them the three
 agree within 9 %.
 
+The Kelmarsh row covers only the logged stops of the test years 2020-2021. Over 2016-2021 the same farm's losses
+are 3.1 GWh in [wind-power-curve-kelmarsh](https://github.com/kwwaleszczynski-del/wind-power-curve-kelmarsh) (all
+non-normal SCADA states) and 3.43 GWh in
+[wind-om-reliability](https://github.com/kwwaleszczynski-del/wind-om-reliability) (all stop intervals of the
+status log). Each is compared with Greenbyte on its own scope, and none prices the SCADA gaps behind 2.3 GWh of
+Greenbyte's 5.6 GWh for 2016-2021.
+
 ![lost energy](docs/img/lost_energy.png)
 
 **3. Lost energy from the detected events** (same WARP expected power on both sides, so the difference is the
