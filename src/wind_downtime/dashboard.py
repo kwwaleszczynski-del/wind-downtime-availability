@@ -115,8 +115,10 @@ a { color: var(--accent); }
 .tile .l { color: var(--ink2); font-size: 0.86rem; }
 .controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 8px 0 10px; }
 label { font-size: 0.88rem; color: var(--ink2); }
+.controls label { display: inline-flex; align-items: center; gap: 0.3em; max-width: 100%; min-width: 0; }
 select, input { font: inherit; font-size: 0.9rem; padding: 3px 6px; border: 1px solid var(--axis);
                 border-radius: 6px; background: var(--surface); color: var(--ink); }
+select { min-width: 0; max-width: 100%; }  /* long option texts must not widen the page on a phone */
 input[type=number] { width: 6.5em; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.84rem; color: var(--ink2); margin: 6px 0; }
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -127,6 +129,7 @@ td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
 .scroll { max-height: 320px; overflow: auto; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+.grid2 > .card { min-width: 0; overflow-x: auto; }  /* a wide table scrolls inside its card, not the page */
 .big { font-size: 1.9rem; font-weight: 650; }
 .note { font-size: 0.82rem; color: var(--muted); }
 .plot { width: 100%; }
@@ -329,8 +332,10 @@ function methods() {
   });
   const pct = metric === "lost_error" || metric === "avail_err";
   Plotly.react("mc-plot", traces, layoutBase({barmode: "group", bargap: 0.25,
-    legend: {orientation: "h", y: 1.12, x: 0}, xaxis: axis({categoryorder: "array",
-      categoryarray: METHODS.map(m => MLABEL[m])}),
+    margin: narrow() ? {l: 48, r: 12, t: 64, b: 100} : {l: 60, r: 16, t: 24, b: 50},
+    legend: narrow() ? {orientation: "h", yanchor: "bottom", y: 1.02, x: 0} : {orientation: "h", y: 1.12, x: 0},
+    xaxis: axis({categoryorder: "array",
+      categoryarray: METHODS.map(m => MLABEL[m]), tickangle: narrow() ? -90 : "auto"}),
     yaxis: axis({title: {text: pct ? (metric === "avail_err" ? "pp" : "%") : "", font: {size: 12}},
       range: pct ? null : [0, 1]})}), {responsive: true, displaylogo: false});
   document.getElementById("mc-note").textContent = metric === "lost_error"
@@ -411,8 +416,9 @@ function scenarios() {
     y: names, x: full.map(n => (d.find(r => r.farm === f && r.scenario === n) || {}).time_pp), text: full, textposition: "none",
     marker: {color: cols[j]}, hovertemplate: "%{text}<br>" + FARMS[f] + ": %{x:.2f} pp<extra></extra>"}));
   Plotly.react("sc-plot", traces, layoutBase({barmode: "group", margin: {l: narrow() ? 130 : 190, r: 16, t: 10, b: 40},
-    legend: {orientation: "h", y: -0.2}, yaxis: axis({autorange: "reversed"}),
-    xaxis: axis({title: {text: "change of warranty time-based availability [pp]", font: {size: 12}}, zeroline: true,
+    legend: {orientation: "h", y: -0.2}, yaxis: axis({autorange: "reversed", tickfont: {size: narrow() ? 9 : 12}}),
+    xaxis: axis({title: {text: narrow() ? "availability change [pp]" : "change of warranty time-based availability [pp]",
+      font: {size: 12}}, zeroline: true,
       zerolinecolor: css("--axis")})}), {responsive: true, displaylogo: false});
 }
 
